@@ -44,6 +44,7 @@ module Fluent
       DEFAULT_SENTINEL_PORT = 26_379
       DEFAULT_CACHE_TTL = 30 * 60
       DEFAULT_CACHE_SIZE = 5000
+      DEFAULT_CACHE_TYPE = :lazy
 
       desc 'Redis host'
       config_param :redis_host, :string, default: DEFAULT_REDIS_HOST
@@ -66,6 +67,8 @@ module Fluent
       desc 'Sentinel redis role'
       config_param :redis_role, :enum, list: %i[master slave replica], default: DEFAULT_REDIS_ROLE
 
+      desc 'local Cache type'
+      config_param :cache_type, :enum, list: %i[lazy full no], default: DEFAULT_CACHE_TYPE
       desc 'local Cache size'
       config_param :cache_size, :integer, default: DEFAULT_CACHE_SIZE
       desc 'local Cache ttl'
@@ -98,12 +101,13 @@ module Fluent
       def start
         super
 
-        @cache = Cache.new(**cache_options)
-        @redis = RedisPool.new(**redis_options)
+        @redis = RedisPool.new(log: log, **redis_options)
+        @cache = Cache.new(redis: @redis, log: log, **cache_options)
       end
 
       def shutdown
         @redis.quit
+        @cache.clean
 
         super
       end
@@ -114,7 +118,7 @@ module Fluent
                                                             time: time,
                                                             record: new_record })
         log.debug("filter_redis_enrichment: on tag:#{tag}, search #{expanded_key}")
-        redis = @cache.getset(expanded_key) { @redis.get(expanded_key) }
+        redis = @cache.get(expanded_key)
         new_record_record_enrichment = @placeholder_expander.expand(@record_enrichment,
                                                                     { tag: tag,
                                                                       time: time,
@@ -125,6 +129,7 @@ module Fluent
 
       def cache_options
         {
+          type: cache_type,
           size: cache_size,
           ttl: cache_ttl
         }
@@ -172,39 +177,102 @@ module Fluent
         value_str # emit as string
       end
 
-      class Cache
-        def initialize(size: DEFAULT_CACHE_SIZE, ttl: DEFAULT_CACHE_TTL)
-          @size = size
-          @ttl = ttl
+      module Cache
+        def self.new(redis:, type: DEFAULT_CACHE_TYPE, size: DEFAULT_CACHE_SIZE, ttl: DEFAULT_CACHE_TTL, log: nil)
+          klass = case type
+                  when :lazy then LazyCache
+                  when :full then FullCache
+                  else
+                    NoCache
+                  end
+          klass.new(redis: redis, size: size, ttl: ttl, log: log)
         end
 
-        def getset(key, &block)
-          cache.getset(key, &block)
+        class NoCache
+          attr_reader :log
+
+          def initialize(redis:, size: nil, ttl: nil, log: nil)
+            @redis = redis
+            @size = size
+            @ttl = ttl
+            @log = log
+          end
+
+          def get(key)
+            @redis.get(key)
+          end
+
+          def clean
+          end
         end
 
-        private
+        class LazyCache < NoCache
+          def initialize(redis:, size: DEFAULT_CACHE_SIZE, ttl: DEFAULT_CACHE_TTL, log: nil)
+            super
+          end
 
-        def cache
-          @cache ||= if @size == 0 || @ttl == 0
-                       NoCache.new
-                     else
-                       LruRedux::TTL::ThreadSafeCache.new(@size, @ttl)
-                     end
+          def get(key)
+            cache.getset(key) { @redis.get(key) }
+          end
+
+          def cache
+            @cache ||= LruRedux::TTL::ThreadSafeCache.new(@size, @ttl)
+          end
         end
-      end
 
-      class NoCache
-        def getset(_key)
-          yield
+        class FullCache < NoCache
+          def initialize(*args, **kwargs)
+            super
+
+            initialize_cache
+          end
+
+          def initialize_cache
+            @cache = {}
+            @cache_mutex = Mutex.new
+
+            reload
+            @timer = timer(@ttl, &method(:reload))
+          end
+
+          def reload
+            log.warn :RELOAD if log
+            new_cache_content = @redis.get_all
+            @cache_mutex.synchronize { @cache.replace(new_cache_content) }
+          end
+
+          def get(key)
+            @cache_mutex.synchronize { @cache[key] }
+          end
+
+          def timer(interval, &block)
+            Thread.new do
+              loop do
+                begin
+                  sleep interval
+                  block.call
+                rescue StandardError => e
+                  log.warn(e) if log
+                end
+              end
+            end
+          end
+
+          def clean
+            @timer.exit if @timer
+          end
         end
       end
 
       # proxy for Redis client
       #   allow extract caching of cache
       class RedisPool
+        attr_reader :log
+
         def initialize(sentinels: DEFAULT_SENTINELS, name: DEFAULT_SENTINEL_MASTER, role: DEFAULT_REDIS_ROLE,
                        host: DEFAULT_REDIS_HOST, port: DEFAULT_REDIS_PORT, db: DEFAULT_REDIS_DB,
-                       password: DEFAULT_REDIS_PASSWORD, timeout: DEFAULT_REDIS_TIMEOUT, pool_size: DEFAULT_REDIS_POOL)
+                       password: DEFAULT_REDIS_PASSWORD, timeout: DEFAULT_REDIS_TIMEOUT, pool_size: DEFAULT_REDIS_POOL,
+                       log: nil)
           @sentinels = sentinels
           @name = name
           @role = role
@@ -214,6 +282,7 @@ module Fluent
           @password = password
           @timeout = timeout
           @pool_size = pool_size
+          @log = log
         end
 
         def get(key)
@@ -225,8 +294,18 @@ module Fluent
           when 'string' then redis.get(key)
           when 'hash' then redis.hgetall(key)
           else
-            log.warn("redis key '#{key}' has an unmanaged type '#{key_type}'")
+            log.warn("redis key '#{key}' has an unmanaged type '#{key_type}'") if log
             nil
+          end
+        end
+
+        def get_all
+          redis.scan_each.with_object({}) do |key, all|
+            case @redis.type(key)
+            when 'hash' then all[key] = @redis.hgetall(key)
+            when 'string' then all[key] = @redis.get(key)
+            when 'set' then all[key] = @redis.smembers(key)
+            end
           end
         end
 
@@ -296,9 +375,11 @@ module Fluent
         def expand(__str_to_eval__, tag: nil, time: nil, record: nil, redis: nil, **_extra)
           instance_eval(__str_to_eval__)
         rescue NoMethodError => e
+          log.warn("while expanding #{__str_to_eval__}: #{e}")
           nil
         rescue StandardError => e
           log.warn("while expanding #{__str_to_eval__}: #{e}")
+          nil
         end
 
         Object.instance_methods.each do |m|
