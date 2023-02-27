@@ -375,7 +375,6 @@ module Fluent
         def expand(__str_to_eval__, tag: nil, time: nil, record: nil, redis: nil, **_extra)
           instance_eval(__str_to_eval__)
         rescue NoMethodError => e
-          log.warn("while expanding #{__str_to_eval__}: #{e}")
           nil
         rescue StandardError => e
           log.warn("while expanding #{__str_to_eval__}: #{e}")
