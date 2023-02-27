@@ -202,8 +202,7 @@ module Fluent
             @redis.get(key)
           end
 
-          def clean
-          end
+          def clean; end
         end
 
         class LazyCache < NoCache
