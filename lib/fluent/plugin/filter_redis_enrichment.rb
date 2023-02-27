@@ -235,9 +235,10 @@ module Fluent
           end
 
           def reload
-            log.warn :RELOAD if log
+            log.debug 'filter_redis_enrichment: full cache reload' if log
             new_cache_content = @redis.get_all
             @cache_mutex.synchronize { @cache.replace(new_cache_content) }
+            log.debug 'filter_redis_enrichment: full cache reloaded' if log
           end
 
           def get(key)
