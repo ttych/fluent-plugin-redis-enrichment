@@ -36,7 +36,7 @@ Gem::Specification.new do |spec|
   spec.add_development_dependency 'rubocop-rake', '~> 0.5.1' # < 0.6.x to work with ruby 2.4.10
   spec.add_development_dependency 'test-unit', '~> 3.5.3'
 
-  spec.add_runtime_dependency 'connection_pool', '~> 2.2' # < 2.3.x to work with ruby 2.4.10
+  spec.add_runtime_dependency 'connection_pool', '~> 2.2.5' # < 2.3.x to work with ruby 2.4.10
   spec.add_runtime_dependency 'fluentd', ['>= 0.14.10', '< 2']
   spec.add_runtime_dependency 'lru_redux', '~> 1.1'
   spec.add_runtime_dependency 'redis', '~> 4.8'  #  < 5.x to work with ruby 2.4.10
