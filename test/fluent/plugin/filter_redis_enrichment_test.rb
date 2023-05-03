@@ -10,12 +10,12 @@ class FakeRedis
   end
 
   def get(key)
-    @calls.append([:get, key])
+    @calls.push([:get, key])
     @data[key]
   end
 
   def get_all
-    @calls.append([:get_all])
+    @calls.push([:get_all])
     @data
   end
 

@@ -23,19 +23,23 @@ Gem::Specification.new do |spec|
   spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
   spec.require_paths = ['lib']
 
+  # commented dependency use blocked old versions
+  # for compatibility with ruby 2.4.10
+  # for old version of td-agent
+
   spec.add_development_dependency 'bump', '~> 0.10.0'
-  spec.add_development_dependency 'bundler', '~> 2.3.20'
+  spec.add_development_dependency 'bundler', '~> 2.2'
   spec.add_development_dependency 'byebug', '~> 11.1', '>= 11.1.3'
   spec.add_development_dependency 'rake', '~> 13.0.6'
-  spec.add_development_dependency 'reek', '~> 6.1', '>= 6.1.1'
-  spec.add_development_dependency 'rubocop', '~> 1.21'
-  spec.add_development_dependency 'rubocop-rake', '~> 0.6.0'
+  spec.add_development_dependency 'reek', '~> 6.0.6' # < 6.1.x to work with ruby 2.4.10
+  spec.add_development_dependency 'rubocop', '~> 1.12.1' # < 1.13.x to work with ruby 2.4.10
+  spec.add_development_dependency 'rubocop-rake', '~> 0.5.1' # < 0.6.x to work with ruby 2.4.10
   spec.add_development_dependency 'test-unit', '~> 3.5.3'
 
-  spec.add_runtime_dependency 'connection_pool', '~> 2.3'
+  spec.add_runtime_dependency 'connection_pool', '~> 2.2' # < 2.3.x to work with ruby 2.4.10
   spec.add_runtime_dependency 'fluentd', ['>= 0.14.10', '< 2']
   spec.add_runtime_dependency 'lru_redux', '~> 1.1'
-  spec.add_runtime_dependency 'redis', '~> 5.0', '>= 5.0.5'
+  spec.add_runtime_dependency 'redis', '~> 4.8'  #  < 5.x to work with ruby 2.4.10
 
   spec.metadata['rubygems_mfa_required'] = 'true'
 end
