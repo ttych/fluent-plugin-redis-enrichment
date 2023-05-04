@@ -29,7 +29,9 @@ module Fluent
     # filter plugin
     #   enrich record based on redis fetched content
     class RedisEnrichmentFilter < Fluent::Plugin::Filter
-      Fluent::Plugin.register_filter('redis_enrichment', self)
+      NAME = 'redis_enrichment'
+
+      Fluent::Plugin.register_filter(NAME, self)
 
       DEFAULT_REDIS_HOST = '127.0.0.1'
       DEFAULT_REDIS_PORT = 6379
@@ -117,7 +119,7 @@ module Fluent
         expanded_key = @placeholder_expander.expand(@key, { tag: tag,
                                                             time: time,
                                                             record: new_record })
-        log.debug("filter_redis_enrichment: on tag:#{tag}, search #{expanded_key}")
+        log.debug("filter #{NAME}: on tag:#{tag}, search #{expanded_key}")
         redis = @cache.get(expanded_key)
         new_record_record_enrichment = @placeholder_expander.expand(@record_enrichment,
                                                                     { tag: tag,
@@ -125,6 +127,9 @@ module Fluent
                                                                       record: new_record,
                                                                       redis: redis })
         new_record.merge(new_record_record_enrichment)
+      rescue StandardError => e
+        log.error("filter #{NAME}: skip enrichment due to error: #{e}")
+        record
       end
 
       def cache_options
@@ -319,7 +324,7 @@ module Fluent
           @redis ||= ConnectionPool::Wrapper.new(size: @pool_size, timeout: @timeout) do
             if @sentinels
               Redis.new(sentinels: @sentinels, name: @name, role: @role, db: @db, password: @password,
-                        timeout: @timeout)
+                        timeout: @timeout, host: @name)
             else
               Redis.new(host: @host, port: @port, db: @db, password: @password, timeout: @timeout)
             end

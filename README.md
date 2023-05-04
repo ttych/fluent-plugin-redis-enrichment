@@ -2,6 +2,14 @@
 
 Filter plugin that allow to update record with data fetch from redis.
 
+## Behaviour
+
+- try to do record enrichment using redis content,
+- fetch redis data based on a key that can be hardcoded or in the record
+- enrich record with redis fetched data
+- in case of failure in the processing, skip enrichment and let processing
+  continue on record
+
 ## Installation
 
 
@@ -15,8 +23,18 @@ Add to Gemfile with:
 
 ## Compatibility
 
+### 1.x.x
+
+plugin in 1.x.x will work with:
 - ruby >= 2.4.10
 - td-agent >= 3.8.1-0
+
+and so use:
+- redis > 4, < 5
+
+### 2.x.x
+
+will come next !
 
 ## Configuration
 
